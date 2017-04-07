@@ -22,7 +22,7 @@ brooklyn.catalog:
   publish:
     description: &postgresqlDescription |
       PostgreSQL is a powerful, open source object-relational database system
-    licence: "Apache-2.0"
+    license_code: "Apache-2.0"
   items:
     - id: postgresql-node
       name: "PostgreSQL Node"
