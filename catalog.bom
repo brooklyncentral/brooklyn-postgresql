@@ -62,6 +62,8 @@ brooklyn.catalog:
           type: integer
         - name: postgresql.config.http.port
           label: "PostgreSQL HTTP port"
+          description: |
+            Port that PostgreSQL will listen for incoming connections
           type: integer
           default: 5432
 
