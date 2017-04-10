@@ -17,20 +17,24 @@
 # under the License.
 #
 brooklyn.catalog:
-  version: &postgresqlVersion "1.0.0-SNAPSHOT" # BROOKLYN_POSTGRESQL_VERSION
-  iconUrl: &postgresqlIconUrl "https://github.com/Postgres.png"
-  publish:
+  publish: &postgresqlPublish
+    name: &postgresqlName "PostgreSQL Node"
     description: &postgresqlDescription |
       PostgreSQL is a powerful, open source object-relational database system
-    license_code: "Apache-2.0"
+    version: &postgresqlVersion "1.0.0-SNAPSHOT" # BROOKLYN_POSTGRESQL_VERSION
+    iconUrl: &postgresqlIconUrl "https://github.com/Postgres.png"
+    license_code: &postgresqlLicense "Apache-2.0"
   items:
     - id: postgresql-node
-      name: "PostgreSQL Node"
+      name: *postgresqlName
       description: *postgresqlDescription
+      version: *postgresqlVersion
+      iconUrl: *postgresqlIconUrl
+      publish: *postgresqlPublish
       itemType: entity
       item:
         id: postgresql-node
-        name: "PostgreSQL Node"
+        name: *postgresqlName
         type: org.apache.brooklyn.entity.software.base.VanillaSoftwareProcess
 
         provisioning.properties:
@@ -240,13 +244,15 @@ brooklyn.catalog:
             failOnRecurringFailuresInThisDuration: 2m
 
     - id: postgresql-node-master
-      name: "PostgreSQL Node (Master)"
+      name: &postgresqlMasterName "PostgreSQL Node (Master)"
       description: |
         PostgreSQL node that will act as a master node for a 'hot standby' configuration
+      version: *postgresqlVersion
+      iconUrl: *postgresqlIconUrl
       itemType: entity
       item:
         id: postgresql-node-master
-        name: "PostgreSQL Node (Master)"
+        name: *postgresqlMasterName
         type: postgresql-node
 
         brooklyn.parameters:
@@ -320,13 +326,15 @@ brooklyn.catalog:
             EOF
 
     - id: postgresql-node-standby
-      name: "PostgreSQL Node (Standby)"
+      name: &postgresqlStandbyName "PostgreSQL Node (Standby)"
       description: |
         PostgreSQL node that will act as a standby node for a 'hot standby' configuration
+      version: *postgresqlVersion
+      iconUrl: *postgresqlIconUrl
       itemType: entity
       item:
         id: postgresql-node-standby
-        name: "PostgreSQL Node (Standby)"
+        name: *postgresqlStandbyName
         type: postgresql-node
 
         brooklyn.parameters:
@@ -371,13 +379,16 @@ brooklyn.catalog:
             EOF
 
     - id: postgresql-ha
-      name: "PostgreSQL HA"
+      name: &postgresqlHaName "PostgreSQL HA"
       description: |
-        PostgreSQL HA is a cluster of PostgreSQL node, setup in hot standby with replication"
+        PostgreSQL HA is a cluster of PostgreSQL node, setup in hot standby with replication
+      version: *postgresqlVersion
+      iconUrl: *postgresqlIconUrl
+      publish: *postgresqlPublish
       itemType: entity
       item:
         id: postgresql-ha
-        name: "PostgreSQL HA"
+        name: *postgresqlHaName
         type: org.apache.brooklyn.entity.group.DynamicCluster
 
         brooklyn.parameters:
