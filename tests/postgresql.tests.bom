@@ -20,7 +20,7 @@ brooklyn.catalog:
   version: "1.0.0-SNAPSHOT" # BROOKLYN_POSTGRESQL_VERSION
   iconUrl: "https://github.com/Postgres.png"
   items:
-  - "https://raw.githubusercontent.com/brooklyncentral/common-catalog-utils/master/common-tests/src/main/resources/commontests/common.tests.bom"
+  - "https://github.com/brooklyncentral/common-catalog-utils/releases/download/v0.1.0/common.test.bom"
   - id: postgresql-node-tests
     name: PostgreSQL Node tests
     description: Test that PostgreSQL Node is running correctly

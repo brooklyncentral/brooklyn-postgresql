@@ -1,0 +1,457 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+brooklyn.catalog:
+  version: &postgresqlVersion "1.0.0-SNAPSHOT" # BROOKLYN_POSTGRESQL_VERSION
+  iconUrl: &postgresqlIconUrl "https://github.com/Postgres.png"
+  publish:
+    description: &postgresqlDescription |
+      PostgreSQL is a powerful, open source object-relational database system
+    license_code: "Apache-2.0"
+  items:
+    - id: postgresql-node
+      name: "PostgreSQL Node"
+      description: *postgresqlDescription
+      itemType: entity
+      item:
+        id: postgresql-node
+        name: "PostgreSQL Node"
+        type: org.apache.brooklyn.entity.software.base.VanillaSoftwareProcess
+
+        provisioning.properties:
+          osFamily: centos
+          osVersionRegex: 7
+
+        brooklyn.parameters:
+        - name: postgresql.initial.command
+          label: "PostgreSQL initial command"
+          description: |
+            Initial command to execute after PostgreSQL has been installed
+          type: string
+        - name: postgresql.config.admin.username
+          label: "PostgreSQL admin username"
+          description: |
+            PostgreSQL username for the admin user. By default, it is set to 'admin'
+          type: string
+          default: admin
+        - name: postgresql.config.admin.password
+          label: "PostgreSQL admin password"
+          description: |
+            PostgreSQL password for the admin user. By default, it is set to 'Pa55w0rd'
+          type: string
+          default: Pa55w0rd
+        - name: postgresql.config.maxConnections
+          label: "PostgreSQL maximum connections"
+          description: |
+            Maximum number of simultaneous connections to the PostgreSQL database
+          type: integer
+        - name: postgresql.config.http.port
+          label: "PostgreSQL HTTP port"
+          description: |
+            Port that PostgreSQL will listen for incoming connections
+          type: integer
+          default: 5432
+
+        brooklyn.config:
+          shell.env:
+            RUN_DIR: $brooklyn:attributeWhenReady("run.dir")
+            POSTGRES_INITIAL_COMMAND: $brooklyn:config("postgresql.initial.command")
+            POSTGRES_CONFIG_ADMIN_USERNAME: $brooklyn:config("postgresql.config.admin.username")
+            POSTGRES_CONFIG_ADMIN_PASSWORD: $brooklyn:config("postgresql.config.admin.password")
+            POSTGRES_CONFIG_MAX_CONNECTIONS: $brooklyn:config("postgresql.config.maxConnections")
+            POSTGRES_CONFIG_HTTP_PORT: $brooklyn:config("postgresql.config.http.port")
+          install.command: |
+            sudo yum update -y
+            sudo yum install -y augeas postgresql-server
+
+            sudo systemctl enable postgresql.service
+            sudo postgresql-setup initdb
+
+            if [[ ! -z ${POSTGRES_CONFIG_MAX_CONNECTIONS} ]]; then
+              sudo -u postgres augtool -Ast 'Postgresql incl /var/lib/pgsql/data/postgresql.conf' set /files/var/lib/pgsql/data/postgresql.conf/max_connections ${POSTGRES_CONFIG_MAX_CONNECTIONS}
+            fi
+
+            if [[ ! -z ${POSTGRES_CONFIG_HTTP_PORT} ]]; then
+              sudo -u postgres augtool -Ast 'Postgresql incl /var/lib/pgsql/data/postgresql.conf' set /files/var/lib/pgsql/data/postgresql.conf/port ${POSTGRES_CONFIG_HTTP_PORT}
+            fi
+
+            sudo -u postgres augtool -Ast 'Pg_Hba incl /var/lib/pgsql/data/pg_hba.conf' << EOF
+            set /files/var/lib/pgsql/data/pg_hba.conf/*[type="local"]/method "trust"
+            set /files/var/lib/pgsql/data/pg_hba.conf/*[address="127.0.0.1/32"]/method "trust"
+            EOF
+
+            mkdir -p $RUN_DIR
+            ln -s /var/lib/pgsql/data $RUN_DIR/data
+
+            if [[ ! -z ${POSTGRES_CONFIG_ADMIN_USERNAME} ]] && [[ ! -z ${POSTGRES_CONFIG_ADMIN_PASSWORD} ]]; then
+              sudo systemctl start postgresql
+              psql -U postgres -c "CREATE USER ${POSTGRES_CONFIG_ADMIN_USERNAME} WITH PASSWORD '${POSTGRES_CONFIG_ADMIN_PASSWORD}' SUPERUSER;"
+              sudo systemctl stop postgresql
+            fi
+
+            if [[ ! -z ${POSTGRES_INITIAL_COMMAND} ]]; then
+            sudo systemctl start postgresql
+            psql -U postgres << EOF
+            ${POSTGRES_INITIAL_COMMAND}
+            EOF
+            sudo systemctl stop postgresql
+            fi
+          launch.command: |
+            sudo systemctl start postgresql
+          stop.command: |
+            sudo systemctl stop postgresql
+          checkRunning.command: |
+            sudo systemctl status postgresql
+
+        brooklyn.initializers:
+        - type: org.apache.brooklyn.core.sensor.StaticSensor
+          brooklyn.config:
+            name: postgresql.admin.username
+            targetType: string
+            static.value: $brooklyn:config("postgresql.config.admin.username")
+        - type: org.apache.brooklyn.core.sensor.StaticSensor
+          brooklyn.config:
+            name: postgresql.admin.password
+            targetType: string
+            static.value: $brooklyn:config("postgresql.config.admin.password")
+        - type: org.apache.brooklyn.core.sensor.StaticSensor
+          brooklyn.config:
+            name: postgresql.http.port
+            targetType: int
+            static.value: $brooklyn:config("postgresql.config.http.port")
+
+        - type: org.apache.brooklyn.core.effector.ssh.SshCommandEffector
+          brooklyn.config:
+            name: createNewUser
+            description: |
+              Create a new user in PostgreSQL instance
+            parameters:
+              username:
+                description: |
+                  The username of the new user to create
+              password:
+                description: |
+                  The password of the new user to create
+              role:
+                description: |
+                  The role of the new user to create. Can be "CREATEDB", "SUPERUSER", etc or empty
+            command: |
+              psql -U postgres -c "CREATE USER ${username} WITH PASSWORD '${password}' ${role};"
+        - type: org.apache.brooklyn.core.effector.ssh.SshCommandEffector
+          brooklyn.config:
+            name: createNewDatabase
+            description: |
+              Create a new database in PostgreSQL instance
+            parameters:
+              name:
+                description: |
+                  The name of the new database to create
+              owner:
+                description: |
+                  The owner of the new database to create
+                defaultValue: postgres
+            command: |
+              psql -U postgres -c "CREATE DATABASE ${name} OWNER ${owner};"
+        - type: org.apache.brooklyn.core.effector.ssh.SshCommandEffector
+          brooklyn.config:
+            name: executeSqlStatement
+            description: |
+              Execute the given SQL statement on the server
+            parameters:
+              statement:
+                description: |
+                  SQL statement to execute on the server
+            command: |
+              psql -U postgres << EOF
+              ${statement}
+              EOF
+        - type: org.apache.brooklyn.core.effector.ssh.SshCommandEffector
+          brooklyn.config:
+            name: addRemoteConnection
+            description: |
+              Add the given host (either IP address or hostname) to the list of nodes that can connect to this PostgreSQL server.
+              This will work in combination of the given user and database this host can connect to
+            parameters:
+              type:
+                description: |
+                  Connection type: "local" is a Unix-domain" socket, "host" is either a plain or SSL-encrypted TCP/IP
+                  socket, "hostssl" is an SSL-encrypted TCP/IP socket, and "hostnossl" is a plain TCP/IP socket.
+                defaultValue: host
+              database:
+                description: |
+                  Can be "all", "sameuser", "samerole", "replication", a database name, or a comma-separated list thereof.
+                  The "all" keyword does not match "replication". Access to replication must be enabled in a separate
+                  record (see example below).
+                defaultValue: all
+              user:
+                description: |
+                  The user that will be able to connect to. Can be "all", a user name, a group name prefixed with "+",
+                  or a comma-separated list thereof.
+                defaultValue: all
+              address:
+                description: |
+                  specifies the set of hosts the record matches. It can be a host name, or it is made up of an IP address
+                  and a CIDR mask that is an integer (between 0 and 32 (IPv4) or 128 (IPv6) inclusive) that specifies the
+                  number of significant bits in the mask. A host name that starts with a dot (.) matches a suffix of the
+                  actual host name. Alternatively, you can write an IP address and netmask in separate columns to specify
+                  the set of hosts.  Instead of a CIDR-address, you can write "samehost" to match any of the server's own
+                  IP addresses, or "samenet" to match any address in any subnet that the server is directly connected to.
+              method:
+                description: |
+                  Can be "trust", "reject", "md5", "password", "gss", "sspi", "krb5", "ident", "peer", "pam", "ldap",
+                  "radius" or "cert".  Note that "password" sends passwords in clear text; "md5" is preferred since
+                  it sends encrypted passwords.
+                defaultValue: password
+            command: |
+              sudo -u postgres augtool -Ast 'Pg_Hba incl /var/lib/pgsql/data/pg_hba.conf' << EOF
+              rm /files/var/lib/pgsql/data/pg_hba.conf/*[address="${address}"]
+              set /files/var/lib/pgsql/data/pg_hba.conf/01/type "${type}"
+              set /files/var/lib/pgsql/data/pg_hba.conf/01/database "${database}"
+              set /files/var/lib/pgsql/data/pg_hba.conf/01/user "${user}"
+              set /files/var/lib/pgsql/data/pg_hba.conf/01/address "${address}"
+              set /files/var/lib/pgsql/data/pg_hba.conf/01/method "${method}"
+              EOF
+
+              sudo systemctl reload postgresql
+
+        brooklyn.enrichers:
+        - type: org.apache.brooklyn.policy.ha.ServiceFailureDetector
+          brooklyn.config:
+            entityFailed.stabilizationDelay: 30s
+
+        brooklyn.policies:
+        - type: org.apache.brooklyn.policy.ha.ServiceRestarter
+          brooklyn.config:
+            failOnRecurringFailuresInThisDuration: 2m
+
+    - id: postgresql-node-master
+      name: "PostgreSQL Node (Master)"
+      description: |
+        PostgreSQL node that will act as a master node for a 'hot standby' configuration
+      itemType: entity
+      item:
+        id: postgresql-node-master
+        name: "PostgreSQL Node (Master)"
+        type: postgresql-node
+
+        brooklyn.parameters:
+        - &postgresqlReplicationUsernameParameter
+          name: postgresql.config.replication.username
+          label: "PostgreSQL replication username"
+          description: |
+            PostgreSQL username for the replication user. By default, it is set to 'repuser'
+          type: string
+          default: repuser
+          constraints:
+          - required
+        - &postgresqlReplicationPasswordParameter
+          name: postgresql.config.replication.password
+          label: "PostgreSQL replication password"
+          description: |
+            PostgreSQL password for the replication user. By default, it is set to 'repuserPa55w0rd'
+          type: string
+          default: repuserPa55w0rd
+          constraints:
+          - required
+        - &postgresqlAddressesParameter
+          name: postgresql.config.addresses
+          label: "PostgreSQL host addresses"
+          description: |
+            Comma-separated list of IP addresses, allowed to connect to this instance
+          type: string
+          constraints:
+          - required
+        - &postgresqlWalSendersParameter
+          name: postgresql.config.wal.senders
+          label: "PostgreSQL wal senders number"
+          description: |
+            Number of maximum concurrent wal senders that this instance accepts
+          type: integer
+          default: 20
+          constraints:
+          - required
+
+        brooklyn.config:
+          shell.env:
+            POSTGRES_CONFIG_REPLICATION_USERNAME: $brooklyn:config("postgresql.config.replication.username")
+            POSTGRES_CONFIG_REPLICATION_PASSWORD: $brooklyn:config("postgresql.config.replication.password")
+            POSTGRES_CONFIG_ADDRESSES: $brooklyn:config("postgresql.config.addresses")
+            POSTGRES_CONFIG_WAL_SENDERS: $brooklyn:config("postgresql.config.wal.senders")
+          customize.command: |
+            sudo systemctl start postgresql
+            createuser -U postgres ${POSTGRES_CONFIG_REPLICATION_USERNAME} -c 5 --replication
+            psql -U postgres -c "ALTER USER ${POSTGRES_CONFIG_REPLICATION_USERNAME} WITH PASSWORD '${POSTGRES_CONFIG_REPLICATION_PASSWORD}';"
+            sudo systemctl stop postgresql
+
+            sudo -u postgres mkdir -p /var/lib/pgsql/data/archive
+
+            for address in $(echo ${POSTGRES_CONFIG_ADDRESSES} | sed "s/,/ /g")
+            do
+            sudo -u postgres augtool -Ast 'Pg_Hba incl /var/lib/pgsql/data/pg_hba.conf' << EOF
+            set /files/var/lib/pgsql/data/pg_hba.conf/01/type "host"
+            set /files/var/lib/pgsql/data/pg_hba.conf/01/database "replication"
+            set /files/var/lib/pgsql/data/pg_hba.conf/01/user "${POSTGRES_CONFIG_REPLICATION_USERNAME}"
+            set /files/var/lib/pgsql/data/pg_hba.conf/01/address "${address}/32"
+            set /files/var/lib/pgsql/data/pg_hba.conf/01/method "trust"
+            EOF
+            done
+
+            sudo -u postgres augtool -Ast 'Postgresql incl /var/lib/pgsql/data/postgresql.conf' << EOF
+            set /files/var/lib/pgsql/data/postgresql.conf/listen_addresses "${POSTGRES_CONFIG_ADDRESSES}"
+            set /files/var/lib/pgsql/data/postgresql.conf/wal_level "hot_standby"
+            set /files/var/lib/pgsql/data/postgresql.conf/max_wal_senders "${POSTGRES_CONFIG_WAL_SENDERS}"
+            set /files/var/lib/pgsql/data/postgresql.conf/archive_mode "on"
+            set /files/var/lib/pgsql/data/postgresql.conf/archive_command "cp -f %p /var/lib/postgresql/data/archive/%f </dev/null"
+            EOF
+
+    - id: postgresql-node-standby
+      name: "PostgreSQL Node (Standby)"
+      description: |
+        PostgreSQL node that will act as a standby node for a 'hot standby' configuration
+      itemType: entity
+      item:
+        id: postgresql-node-standby
+        name: "PostgreSQL Node (Standby)"
+        type: postgresql-node
+
+        brooklyn.parameters:
+        - *postgresqlReplicationUsernameParameter
+        - *postgresqlReplicationPasswordParameter
+        - &postgresqlMasterHostParameter
+          name: postgresql.config.master.host
+          label: "PostgreSQL master host"
+          description: |
+            Host IP address of the master node
+          type: string
+          constraints:
+          - required
+        - &postgresqlMasterPortParameter
+          name: postgresql.config.master.port
+          label: "PostgreSQL master port"
+          description: |
+            Port where PostgreSQL is available on the master node
+          type: string
+          constraints:
+          - required
+
+        brooklyn.config:
+          shell.env:
+            POSTGRES_CONFIG_REPLICATION_USERNAME: $brooklyn:config("postgresql.config.replication.username")
+            POSTGRES_CONFIG_REPLICATION_PASSWORD: $brooklyn:config("postgresql.config.replication.password")
+            POSTGRES_CONFIG_MASTER_HOST: $brooklyn:config("postgresql.config.master.host")
+            POSTGRES_CONFIG_MASTER_PORT: $brooklyn:config("postgresql.config.master.port")
+          customize.command: |
+            sudo -u postgres find /var/lib/pgsql/data -mindepth 1 -delete
+
+            sudo -u postgres pg_basebackup -h ${POSTGRES_CONFIG_MASTER_HOST} -U ${POSTGRES_CONFIG_REPLICATION_USERNAME} -v --xlog-method=stream -D /var/lib/pgsql/data
+
+            sudo -u postgres augtool -Ast 'Postgresql incl /var/lib/pgsql/data/postgresql.conf' << EOF
+            set /files/var/lib/pgsql/data/postgresql.conf/hot_standby "on"
+            EOF
+
+            sudo -u postgres touch /var/lib/pgsql/data/recovery.conf
+            sudo -u postgres augtool -Ast 'Postgresql incl /var/lib/pgsql/data/recovery.conf' << EOF
+            set /files/var/lib/pgsql/data/recovery.conf/standby_mode "on"
+            set /files/var/lib/pgsql/data/recovery.conf/primary_conninfo "host=${POSTGRES_CONFIG_MASTER_HOST} port=${POSTGRES_CONFIG_MASTER_PORT} user=${POSTGRES_CONFIG_REPLICATION_USERNAME} password=${POSTGRES_CONFIG_REPLICATION_PASSWORD}"
+            EOF
+
+    - id: postgresql-ha
+      name: "PostgreSQL HA"
+      description: |
+        PostgreSQL HA is a cluster of PostgreSQL node, setup in hot standby with replication"
+      itemType: entity
+      item:
+        id: postgresql-ha
+        name: "PostgreSQL HA"
+        type: org.apache.brooklyn.entity.group.DynamicCluster
+
+        brooklyn.parameters:
+        - *postgresqlReplicationUsernameParameter
+        - *postgresqlReplicationPasswordParameter
+
+        brooklyn.config:
+          dynamiccluster.firstmemberspec:
+            $brooklyn:entitySpec:
+              type: postgresql-node-master
+              brooklyn.config:
+                postgresql.config.addresses: $brooklyn:parent().attributeWhenReady("postgresql.addresses.string")
+          dynamiccluster.memberspec:
+            $brooklyn:entitySpec:
+              type: postgresql-node-standby
+              brooklyn.config:
+                postgresql.config.master.host: $brooklyn:component($brooklyn:component("this", "").attributeWhenReady("cluster.first.entity")).attributeWhenReady("host.address")
+                postgresql.config.master.port: $brooklyn:component($brooklyn:component("this", "").attributeWhenReady("cluster.first.entity")).attributeWhenReady("postgresql.http.port")
+                customize.latch: $brooklyn:component($brooklyn:component("this", "").attributeWhenReady("cluster.first.entity")).attributeWhenReady("service.isUp")
+
+        brooklyn.enrichers:
+        - type: org.apache.brooklyn.enricher.stock.Aggregator
+          brooklyn.config:
+            enricher.sourceSensor: $brooklyn:sensor("host.address")
+            enricher.targetSensor: $brooklyn:sensor("postgresql.addresses.list")
+            enricher.aggregating.fromMembers: true
+            enricher.aggregator.excludeBlank: true
+        - type: org.apache.brooklyn.enricher.stock.Joiner
+          brooklyn.config:
+            enricher.sourceSensor: $brooklyn:sensor("postgresql.addresses.list")
+            enricher.targetSensor: $brooklyn:sensor("postgresql.addresses.string")
+            enricher.joiner.quote: false
+            uniqueTag: postgresql-addresses-string-joiner
+
+        brooklyn.policies:
+        - type: org.apache.brooklyn.policy.InvokeEffectorOnSensorChange
+          brooklyn.config:
+            sensor: postgresql.addresses.string
+            effector: updateConfigOnMembers
+
+        brooklyn.initializers:
+        - type: org.apache.brooklyn.core.sensor.StaticSensor
+          brooklyn.config:
+            name: postgresql.replication.username
+            targetType: string
+            static.value: $brooklyn:config("postgresql.config.replication.username")
+        - type: org.apache.brooklyn.core.sensor.StaticSensor
+          brooklyn.config:
+            name: postgresql.replication.password
+            targetType: string
+            static.value: $brooklyn:config("postgresql.config.replication.password")
+        - type: org.apache.brooklyn.core.effector.ssh.SshCommandEffector
+          brooklyn.config:
+            name: updateConfigOnMembers
+            description: "Updates config files (pg_hba.conf and postgresql.conf) on all members to allow TCP/IP connections between all cluster nodes"
+            executionTarget: MEMBERS
+            shell.env:
+              POSTGRES_CONFIG_REPLICATION_USERNAME: $brooklyn:config("postgresql.config.replication.username")
+              POSTGRES_CONFIG_ADDRESSES: $brooklyn:attributeWhenReady("postgresql.addresses.string")
+            command: |
+              for address in $(echo ${POSTGRES_CONFIG_ADDRESSES} | sed "s/,/ /g")
+              do
+              sudo -u postgres augtool -Ast 'Pg_Hba incl /var/lib/pgsql/data/pg_hba.conf' << EOF
+              rm /files/var/lib/pgsql/data/pg_hba.conf/*[address="${address}/32"]
+              set /files/var/lib/pgsql/data/pg_hba.conf/01/type "host"
+              set /files/var/lib/pgsql/data/pg_hba.conf/01/database "replication"
+              set /files/var/lib/pgsql/data/pg_hba.conf/01/user "${POSTGRES_CONFIG_REPLICATION_USERNAME}"
+              set /files/var/lib/pgsql/data/pg_hba.conf/01/address "${address}/32"
+              set /files/var/lib/pgsql/data/pg_hba.conf/01/method "trust"
+              EOF
+              done
+
+              sudo -u postgres augtool -Ast 'Postgresql incl /var/lib/pgsql/data/postgresql.conf' << EOF
+              set /files/var/lib/pgsql/data/postgresql.conf/listen_addresses "${POSTGRES_CONFIG_ADDRESSES}"
+              EOF
+
+              sudo systemctl reload postgresql
