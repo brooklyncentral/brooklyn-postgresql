@@ -318,7 +318,7 @@ brooklyn.catalog:
             done
 
             sudo -u postgres augtool -Ast 'Postgresql incl /var/lib/pgsql/data/postgresql.conf' << EOF
-            set /files/var/lib/pgsql/data/postgresql.conf/listen_addresses "${POSTGRES_CONFIG_ADDRESSES}"
+            set /files/var/lib/pgsql/data/postgresql.conf/listen_addresses "*"
             set /files/var/lib/pgsql/data/postgresql.conf/wal_level "hot_standby"
             set /files/var/lib/pgsql/data/postgresql.conf/max_wal_senders "${POSTGRES_CONFIG_WAL_SENDERS}"
             set /files/var/lib/pgsql/data/postgresql.conf/archive_mode "on"
@@ -460,9 +460,5 @@ brooklyn.catalog:
               set /files/var/lib/pgsql/data/pg_hba.conf/01/method "trust"
               EOF
               done
-
-              sudo -u postgres augtool -Ast 'Postgresql incl /var/lib/pgsql/data/postgresql.conf' << EOF
-              set /files/var/lib/pgsql/data/postgresql.conf/listen_addresses "${POSTGRES_CONFIG_ADDRESSES}"
-              EOF
 
               sudo systemctl reload postgresql
