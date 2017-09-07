@@ -405,9 +405,9 @@ brooklyn.catalog:
             $brooklyn:entitySpec:
               type: postgresql-node-standby
               brooklyn.config:
-                postgresql.config.master.host: $brooklyn:component($brooklyn:parent().attributeWhenReady("cluster.first.entity")).attributeWhenReady("host.address")
-                postgresql.config.master.port: $brooklyn:component($brooklyn:parent().attributeWhenReady("cluster.first.entity")).attributeWhenReady("postgresql.http.port")
-                customize.latch: $brooklyn:component($brooklyn:parent().attributeWhenReady("cluster.first.entity")).attributeWhenReady("service.isUp")
+                postgresql.config.master.host: $brooklyn:component($brooklyn:component("this", "").attributeWhenReady("cluster.first.entity")).attributeWhenReady("host.address")
+                postgresql.config.master.port: $brooklyn:component($brooklyn:component("this", "").attributeWhenReady("cluster.first.entity")).attributeWhenReady("postgresql.http.port")
+                customize.latch: $brooklyn:component($brooklyn:component("this", "").attributeWhenReady("cluster.first.entity")).attributeWhenReady("service.isUp")
 
         brooklyn.enrichers:
         - type: org.apache.brooklyn.enricher.stock.Aggregator
