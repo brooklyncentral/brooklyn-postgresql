@@ -9,7 +9,13 @@
     <packaging>bundle</packaging>
     <version>1.0.0-SNAPSHOT</version> <!-- BROOKLYN_POSTGRESQL_VERSION -->
 
-    <name>PostgresSQL</name>
+    <parent>
+        <groupId>io.brooklyn</groupId>
+        <artifactId>brooklyncentral-parent</artifactId>
+        <version>1.0.1</version>
+    </parent>
+
+    <name>Brooklyn :: PostgreSQL</name>
     <description>Apache Brooklyn blueprints to deploy and manage PostgreSQL instances</description>
     <url>https://github.com/brooklyncentral/brooklyn-postgresql</url>
 
@@ -36,6 +42,14 @@
             <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
         </license>
     </licenses>
+
+    <!-- For the full list of developers, see contributors to https://github.com/brooklyncentral/brooklyn-postgresql -->
+    <developers>
+        <developer>
+            <name>Cloudsoft</name>
+            <organizationUrl>https://github.com/cloudsoft</organizationUrl>
+        </developer>
+    </developers>
 
     <build>
         <resources>
